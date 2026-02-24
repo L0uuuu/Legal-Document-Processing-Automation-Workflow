@@ -1,0 +1,15 @@
+# Python cache files
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# pytest cache
+
+.pytest_cache/
+
+# Optional: coverage + test temp files (usually useful)
+
+.coverage
+htmlcov/
+.cache/
