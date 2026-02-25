@@ -7,5 +7,5 @@ python-docx==1.1.2
 pydantic==2.10.6
 python-magic==0.4.27
 
-# Phase 2 - Cleaning 
-requests==2.32.3
+# Phase 2 - Cleaning
+ollama==0.4.7
