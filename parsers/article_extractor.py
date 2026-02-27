@@ -57,18 +57,20 @@ class ArticleExtractor:
 
         if parsed is None:
             print(f" ❌ JSON PARSE FAILED ({duration}s)")
-            # Show what we got for debugging
             preview = raw_response[:150].replace("\n", "\\n")
             print(f'   │  Raw: "{preview}"')
             return None
 
         print(f" ✅ OK ({duration}s)")
 
-        # Show what was extracted
         art_num = parsed.get("article_number", "?")
+        art_type = parsed.get("article_type", "?")
         keywords = parsed.get("keywords", [])[:3]
         impact = parsed.get("business_impact", "?")
-        print(f"   │  Article: {art_num}")
+        has_fr = bool(parsed.get("content_french", "").strip())
+        has_ar = bool(parsed.get("content_arabic", "").strip())
+        print(f"   │  Article: {art_num} | Type: {art_type}")
+        print(f"   │  Content: FR={'✅' if has_fr else '❌'} AR={'✅' if has_ar else '❌'}")
         print(f"   │  Keywords: {keywords}")
         print(f"   │  Impact: {impact}")
         print(f"   └─")
@@ -77,14 +79,12 @@ class ArticleExtractor:
 
     def _parse_json(self, text: str) -> Optional[dict]:
         """Extract and parse JSON from LLM response (handles Qwen thinking)."""
-        # Try direct parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
-        # Find the outermost JSON object
-        # This handles Qwen's thinking: "blah blah blah {actual json}"
+        # Find the outermost JSON object using brace depth tracking
         brace_depth = 0
         json_start = None
 
@@ -100,7 +100,6 @@ class ArticleExtractor:
                     try:
                         return json.loads(json_candidate)
                     except json.JSONDecodeError:
-                        # Try fixing common issues
                         fixed = self._fix_json(json_candidate)
                         try:
                             return json.loads(fixed)
@@ -115,8 +114,7 @@ class ArticleExtractor:
         # Remove trailing commas
         text = re.sub(r",\s*}", "}", text)
         text = re.sub(r",\s*]", "]", text)
-        # Fix single quotes → double quotes (careful with apostrophes)
-        # Only do this if there are no double quotes at all
+        # Fix single quotes → double quotes (only if no double quotes)
         if '"' not in text and "'" in text:
             text = text.replace("'", '"')
         return text

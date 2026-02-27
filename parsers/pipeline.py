@@ -49,14 +49,14 @@ class ParsingPipeline:
         else:
             print()
 
-        # ── Step 1: Header Extraction ──────────────────────
+        # ── Step 1: Header Extraction ──
         print(f"\n   {'─'*50}")
         print(f"   📋 Step 1: Header Extraction")
         print(f"   {'─'*50}")
 
         header = self.header_extractor.extract(french_text)
 
-        # ── Step 2: Rough Split ────────────────────────────
+        # ── Step 2: Rough Split ──
         print(f"\n   {'─'*50}")
         print(f"   ✂️  Step 2: Rough Article Splitting")
         print(f"   {'─'*50}")
@@ -83,7 +83,7 @@ class ParsingPipeline:
             chapter = art.chapter_detected or "—"
             print(f"   │  [{i+1}] {marker:<30} Chapter: {chapter}")
 
-        # ── Step 3: Per-Article AI Extraction ──────────────
+        # ── Step 3: Per-Article AI Extraction ──
         print(f"\n   {'─'*50}")
         print(f"   🤖 Step 3: AI Article Extraction")
         print(f"   {'─'*50}")
@@ -98,16 +98,15 @@ class ParsingPipeline:
             )
             raw_extractions.append(extraction)
 
-        # ── Step 4: Assembly & Linking ─────────────────────
+        # ── Step 4: Assembly & Linking ──
         print(f"\n   {'─'*50}")
         print(f"   🔗 Step 4: Assembly & Linking")
         print(f"   {'─'*50}")
 
         articles = assemble_articles(header, raw_extractions, warnings)
 
-        # Summary
         duration = round(time.time() - start_time, 3)
-        total_calls = 1 + self.article_extractor.total_calls  # 1 for header
+        total_calls = 1 + self.article_extractor.total_calls
 
         successful = len([a for a in raw_extractions if a is not None])
         failed = len([a for a in raw_extractions if a is None])
@@ -117,8 +116,12 @@ class ParsingPipeline:
         print(f"   │  Failed: {failed}")
 
         for art in articles:
-            art_id = f"{header.parent_law_id}-art-{art.article_number}" if header.parent_law_id else f"art-{art.article_number}"
-            print(f"   │  {art_id}: {art.summary_french[:60]}..." if art.summary_french else f"   │  {art_id}")
+            art_id = f"{header.parent_document_id}-art-{art.article_number}" if header.parent_document_id else f"art-{art.article_number}"
+            art_type = art.article_type or "?"
+            fr_ok = "✅" if art.content_french else "❌"
+            ar_ok = "✅" if art.content_arabic else "❌"
+            summary_preview = art.summary[:50] + "..." if art.summary else "—"
+            print(f"   │  {art_id} [{art_type}] FR={fr_ok} AR={ar_ok} | {summary_preview}")
 
         print(f"\n{'='*60}")
         print(f"✅ Phase 3 Complete — {duration:.1f}s")

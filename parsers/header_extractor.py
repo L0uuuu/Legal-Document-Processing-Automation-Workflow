@@ -43,7 +43,8 @@ class HeaderExtractor:
         print(f"   │  ✅ {result.law_type} n° {result.law_number} ({result.year})")
         print(f"   │  Title: {(result.title_french or '')[:80]}...")
         print(f"   │  Institutions: {result.institutions}")
-        print(f"   │  Parent ID: {result.parent_law_id}")
+        print(f"   │  Source: {result.source_name} n°{result.source_number}")
+        print(f"   │  Parent ID: {result.parent_document_id}")
 
         return result
 
@@ -63,20 +64,16 @@ class HeaderExtractor:
         institutions = data.get("institutions", [])
         institution_str = data.get("institution", "")
 
-        # If institutions list is empty, try splitting institution string
         if not institutions and institution_str:
             institutions = [i.strip() for i in institution_str.split(",") if i.strip()]
 
-        # Primary/secondary
         primary = institutions[0] if institutions else None
         secondary = institutions[1] if len(institutions) > 1 else None
 
-        # Build parent_law_id
         law_type = data.get("law_type")
         law_number = data.get("law_number")
         parent_id = self._build_parent_id(law_type, law_number)
 
-        # Dates
         pub_date = data.get("publication_date")
         eff_date = data.get("effective_date") or pub_date
 
@@ -87,22 +84,21 @@ class HeaderExtractor:
             institution_secondary=secondary,
             institutions=institutions,
             law_type=law_type,
-            law_number=law_number,
+            law_number=str(law_number) if law_number else None,
             year=data.get("year"),
             title_french=data.get("title_french"),
             title_arabic=data.get("title_arabic"),
             publication_date=pub_date,
             effective_date=eff_date,
-            gazette_name=data.get("gazette_name"),
-            gazette_number=str(data["gazette_number"]) if data.get("gazette_number") else None,
-            gazette_date=data.get("gazette_date"),
-            gazette_page=data.get("gazette_page"),
-            parent_law_id=parent_id,
+            source_name=data.get("source_name"),
+            source_number=str(data["source_number"]) if data.get("source_number") else None,
+            source_date=data.get("source_date"),
+            parent_document_id=parent_id,
             preamble_text=header_text,
         )
 
     def _build_parent_id(self, law_type: Optional[str], law_number: Optional[str]) -> Optional[str]:
-        """Build parent ID like 'tn-loi-66-27'."""
+        """Build parent ID like 'tn-loi-66-27' or 'tn-loi-14'."""
         if not law_type or not law_number:
             return None
 
@@ -119,13 +115,11 @@ class HeaderExtractor:
 
     def _regex_fallback(self, text: str) -> HeaderResult:
         """Fallback: extract basic header info with regex."""
-        # Law number
         law_number = None
-        match = re.search(r"n°\s*(\d{2,4}[-–]\d+)", text, re.IGNORECASE)
+        match = re.search(r"n°\s*(\d{2,4}[-–]?\d*)", text, re.IGNORECASE)
         if match:
             law_number = re.sub(r"\s*[-–]\s*", "-", match.group(1))
 
-        # Law type
         law_type = None
         type_patterns = [
             ("Décret-loi", r"[Dd]écret[-\s]loi"),
@@ -140,12 +134,16 @@ class HeaderExtractor:
                 law_type = lt
                 break
 
-        # Year
         year = None
-        if law_number:
+        if law_number and "-" in law_number:
             parts = law_number.split("-")
             y = int(parts[0])
             year = (1900 + y) if y > 30 else (2000 + y) if y < 100 else y
+        elif law_number:
+            # Try finding year from date
+            match = re.search(r"(\d{4})", text)
+            if match:
+                year = int(match.group(1))
 
         parent_id = self._build_parent_id(law_type, law_number)
 
@@ -153,36 +151,39 @@ class HeaderExtractor:
             law_type=law_type,
             law_number=law_number,
             year=year,
-            parent_law_id=parent_id,
+            parent_document_id=parent_id,
             preamble_text=text,
         )
 
     def _parse_json(self, text: str) -> Optional[dict]:
         """Extract and parse JSON from LLM response."""
-        # Try direct parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
         # Find JSON in response (handles Qwen thinking)
-        match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-
-        # Try fixing common issues
-        # Remove trailing commas before }
-        cleaned = re.sub(r",\s*}", "}", text)
-        cleaned = re.sub(r",\s*]", "]", cleaned)
-        match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", cleaned, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
+        brace_depth = 0
+        json_start = None
+        for i, char in enumerate(text):
+            if char == "{":
+                if brace_depth == 0:
+                    json_start = i
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+                if brace_depth == 0 and json_start is not None:
+                    candidate = text[json_start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        cleaned = re.sub(r",\s*}", "}", candidate)
+                        cleaned = re.sub(r",\s*]", "]", cleaned)
+                        try:
+                            return json.loads(cleaned)
+                        except json.JSONDecodeError:
+                            json_start = None
+                            continue
 
         return None
 
@@ -201,7 +202,8 @@ class HeaderExtractor:
                             "content": (
                                 "Tu es un expert juridique tunisien. "
                                 "Réponds UNIQUEMENT avec du JSON valide. "
-                                "Pas d'explication, pas de commentaire."
+                                "Pas d'explication, pas de commentaire. "
+                                "Le premier caractère de ta réponse doit être {."
                             ),
                         },
                         {"role": "user", "content": prompt},

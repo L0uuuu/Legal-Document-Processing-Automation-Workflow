@@ -20,11 +20,10 @@ class HeaderResult(BaseModel):
     title_arabic: Optional[str] = None
     publication_date: Optional[str] = None
     effective_date: Optional[str] = None
-    gazette_name: Optional[str] = None
-    gazette_number: Optional[str] = None
-    gazette_date: Optional[str] = None
-    gazette_page: Optional[int] = None
-    parent_law_id: Optional[str] = None
+    source_name: Optional[str] = None
+    source_number: Optional[str] = None
+    source_date: Optional[str] = None
+    parent_document_id: Optional[str] = None
     preamble_text: str = ""
 
 
@@ -39,8 +38,8 @@ class RoughArticle(BaseModel):
 
 
 class ParsedArticle(BaseModel):
-    """Final parsed article with all metadata (Step 3 + Step 4)."""
-    # ── Structural ──
+    """Final parsed article with all metadata."""
+    # ── Identity ──
     jurisdiction: str = "TUNISIA"
     institution: Optional[str] = None
     institution_primary: Optional[str] = None
@@ -49,25 +48,31 @@ class ParsedArticle(BaseModel):
     law_type: Optional[str] = None
     law_number: Optional[str] = None
     year: Optional[int] = None
+
+    # ── Title ──
     title_french: Optional[str] = None
     title_arabic: Optional[str] = None
+
+    # ── Structure ──
     chapter: Optional[str] = None
     chapter_normalized: Optional[str] = None
     section: Optional[str] = None
     article_number: Optional[str] = None
     article_order: int = 0
+    article_type: Optional[str] = None
 
     # ── Content ──
     content_french: str = ""
     content_arabic: str = ""
     content_combined: str = ""
+    summary: str = ""
     summary_french: str = ""
     summary_arabic: str = ""
     search_content: str = ""
     content_hash_sha256: str = ""
 
     # ── Linking ──
-    parent_law_id: Optional[str] = None
+    parent_document_id: Optional[str] = None
     preceding_article_id: Optional[str] = None
     following_article_id: Optional[str] = None
 
@@ -77,6 +82,12 @@ class ParsedArticle(BaseModel):
     business_impact: str = "LOW"
     target_audience: list[str] = []
     related_laws: list[str] = []
+
+    # ── Community / Graph ──
+    community_label: Optional[str] = None
+    community_summary: Optional[str] = None
+    community_id: Optional[str] = None
+    graph_level: int = 1
 
     # ── Entities ──
     entity_names: list[str] = []
@@ -98,7 +109,6 @@ class ParsedArticle(BaseModel):
 
     # ── Status (defaults) ──
     status: str = "ACTIVE"
-    status_scope: str = "FULL"
     version: int = 1
     effective_date: Optional[str] = None
     publication_date: Optional[str] = None
@@ -108,11 +118,10 @@ class ParsedArticle(BaseModel):
     last_checked: Optional[str] = None
     next_check: Optional[str] = None
 
-    # ── Gazette ──
-    gazette_name: Optional[str] = None
-    gazette_number: Optional[str] = None
-    gazette_date: Optional[str] = None
-    gazette_page: Optional[int] = None
+    # ── Source ──
+    source_name: Optional[str] = None
+    source_number: Optional[str] = None
+    source_date: Optional[str] = None
     source_url: Optional[str] = None
 
     def compute_hash(self):
@@ -134,12 +143,12 @@ class ParsedArticle(BaseModel):
         search_parts = []
         if self.law_type and self.law_number:
             search_parts.append(f"{self.law_type} {self.law_number}")
-        if self.title_french:
-            search_parts.append(self.title_french)
         search_parts.extend(self.keywords)
         if self.content_french:
+            # Add key French terms
             search_parts.append(self.content_french[:200])
         if self.content_arabic:
+            # Add key Arabic terms
             search_parts.append(self.content_arabic[:200])
         self.search_content = ", ".join(search_parts)
 

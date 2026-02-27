@@ -1,6 +1,5 @@
 """Step 4: Assemble final article objects — merge header, link articles, compute fields."""
 
-import unicodedata
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -31,7 +30,7 @@ def assemble_articles(
         articles.append(article)
 
     # Link articles (preceding/following)
-    _link_articles(articles, header.parent_law_id)
+    _link_articles(articles, header.parent_document_id)
 
     # Compute derived fields
     for article in articles:
@@ -50,15 +49,33 @@ def _build_article(
 
     # Chapter normalization
     chapter = data.get("chapter") or None
-    chapter_normalized = None
-    if chapter:
+    chapter_normalized = data.get("chapter_normalized") or None
+    if chapter and not chapter_normalized:
         chapter_normalized = normalize_chapter(chapter)
 
-    # Now timestamp for last_checked
+    # Article order: use actual article number if it's numeric, otherwise sequential
+    article_number = data.get("article_number")
+    article_order = order
+    if article_number:
+        # Try to extract numeric value for ordering
+        num_match = re.match(r"(\d+)", str(article_number))
+        if num_match:
+            article_order = int(num_match.group(1))
+
+    # Timestamp
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Effective date formatting
+    effective_date = header.effective_date
+    if effective_date and "T" not in effective_date:
+        effective_date = f"{effective_date}T00:00:00Z"
+
+    publication_date = header.publication_date
+    if publication_date and "T" not in publication_date:
+        publication_date = f"{publication_date}T00:00:00Z"
+
     return ParsedArticle(
-        # ── Header fields (shared) ──
+        # ── Identity ──
         jurisdiction="TUNISIA",
         institution=header.institution,
         institution_primary=header.institution_primary,
@@ -67,42 +84,53 @@ def _build_article(
         law_type=header.law_type,
         law_number=header.law_number,
         year=header.year,
+
+        # ── Title ──
         title_french=header.title_french,
         title_arabic=header.title_arabic,
 
-        # ── Structural (from LLM) ──
+        # ── Structure ──
         chapter=chapter,
         chapter_normalized=chapter_normalized,
         section=data.get("section"),
-        article_number=data.get("article_number"),
-        article_order=order,
+        article_number=str(article_number) if article_number else None,
+        article_order=article_order,
+        article_type=data.get("article_type"),
 
-        # ── Content (from LLM) ──
+        # ── Content ──
         content_french=data.get("content_french", ""),
         content_arabic=data.get("content_arabic", ""),
+        summary=data.get("summary", ""),
         summary_french=data.get("summary_french", ""),
         summary_arabic=data.get("summary_arabic", ""),
+        search_content=data.get("search_content", ""),
 
         # ── Linking ──
-        parent_law_id=header.parent_law_id,
+        parent_document_id=header.parent_document_id,
 
-        # ── Semantic (from LLM) ──
+        # ── Semantic ──
         keywords=data.get("keywords", []),
         legal_domains=data.get("legal_domains", []),
         business_impact=data.get("business_impact", "LOW"),
         target_audience=data.get("target_audience", []),
         related_laws=data.get("related_laws", []),
 
-        # ── Entities (from LLM) ──
+        # ── Community / Graph ──
+        community_label=data.get("community_label"),
+        community_summary=data.get("community_summary"),
+        community_id=data.get("community_id"),
+        graph_level=data.get("graph_level", 1),
+
+        # ── Entities ──
         entity_names=data.get("entity_names", []),
         entity_types=data.get("entity_types", []),
         entity_ids=data.get("entity_ids", []),
 
-        # ── Relations (from LLM) ──
+        # ── Relations ──
         relation_target_ids=data.get("relation_target_ids", []),
         relation_types=data.get("relation_types", []),
 
-        # ── Booleans (from LLM) ──
+        # ── Booleans ──
         has_obligations=data.get("has_obligations", False),
         has_penalties=data.get("has_penalties", False),
         has_deadlines=data.get("has_deadlines", False),
@@ -111,42 +139,40 @@ def _build_article(
         is_transitional=data.get("is_transitional", False),
         ambiguity_level=data.get("ambiguity_level", "LOW"),
 
-        # ── Status (defaults) ──
+        # ── Status ──
         status="ACTIVE",
-        status_scope="FULL",
         version=1,
-        effective_date=header.effective_date,
-        publication_date=header.publication_date,
+        effective_date=effective_date,
+        publication_date=publication_date,
         repeal_date=None,
         superseded_by_id=None,
         supersedes_id=None,
         last_checked=now_iso,
         next_check=None,
 
-        # ── Gazette ──
-        gazette_name=header.gazette_name,
-        gazette_number=header.gazette_number,
-        gazette_date=header.gazette_date,
-        gazette_page=header.gazette_page,
+        # ── Source ──
+        source_name=header.source_name,
+        source_number=header.source_number,
+        source_date=header.source_date,
         source_url=None,
     )
 
 
-def _link_articles(articles: list[ParsedArticle], parent_law_id: Optional[str]) -> None:
+def _link_articles(articles: list[ParsedArticle], parent_doc_id: Optional[str]) -> None:
     """Set preceding/following article IDs."""
     for idx, article in enumerate(articles):
         art_num = article.article_number or str(article.article_order)
 
         if idx > 0:
             prev_num = articles[idx - 1].article_number or str(articles[idx - 1].article_order)
-            if parent_law_id:
-                article.preceding_article_id = f"{parent_law_id}-art-{prev_num}"
+            if parent_doc_id:
+                article.preceding_article_id = f"{parent_doc_id}-art-{prev_num}"
             else:
                 article.preceding_article_id = f"art-{prev_num}"
 
         if idx < len(articles) - 1:
             next_num = articles[idx + 1].article_number or str(articles[idx + 1].article_order)
-            if parent_law_id:
-                article.following_article_id = f"{parent_law_id}-art-{next_num}"
+            if parent_doc_id:
+                article.following_article_id = f"{parent_doc_id}-art-{next_num}"
             else:
                 article.following_article_id = f"art-{next_num}"
